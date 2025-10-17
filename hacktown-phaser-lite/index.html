@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HackTown (Phaser Lite)</title>
+    <style>
+      html, body { margin:0; height:100%; background:#0c0f14; color:#ddd; font:13px system-ui; }
+      #hud { position:fixed; left:10px; top:10px; background:rgba(0,0,0,.45); padding:8px 10px; border-radius:10px; z-index:10; }
+      #hud b { font-weight:600; }
+      #help { position:fixed; right:10px; top:10px; background:rgba(0,0,0,.45); padding:8px 10px; border-radius:10px; z-index:10; }
+      a { color:#9ad; }
+    </style>
+  </head>
+  <body>
+    <div id="hud">
+      <div><b>HackTown</b> — ArrowKeys/WASD move</div>
+      <div>Time: <span id="clock">08:00</span> • Agents: <span id="agentCount">0</span></div>
+    </div>
+    <div id="help">Goal: agents gossip about a <b>6:00 PM</b> café meetup, then gather there.</div>
+    <script type="module" src="/main.js"></script>
+  </body>
+</html>
