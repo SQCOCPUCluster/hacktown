@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "mem0ai": "^2.1.38",
     "phaser": "^3.70.0"
   },
   "devDependencies": {

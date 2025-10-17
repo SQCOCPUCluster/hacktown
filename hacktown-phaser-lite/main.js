@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
-import time
-from mem0 import MemoryClient
-// ============================================================
+import MemoryClient from 'mem0ai';
+
+const client = new MemoryClient({ apiKey: 'm0-HoiRNcjLZq7oxg6JznNRWLW9cuv0G9da6JEVIicy' });
+
 // NPC CLASS - This is a "person" in the game world
 // ============================================================
 // Think of this as a template for creating characters.
@@ -30,6 +31,32 @@ class NPC {
     this.memories = [];            // List of things they remember: {text, ts, importance}
     this.schedule = [];            // Daily agenda: [{t:'08:00', x, y}] = "At 8am, go to (x,y)"
     this.nextScheduleIdx = 0;      // Which schedule item they're working on next
+
+    // Load memories from Mem0 (async, runs in background)
+    this.loadMemoriesFromMem0();
+  }
+
+  // LOAD MEMORIES - Retrieves past memories from Mem0 cloud storage
+  async loadMemoriesFromMem0() {
+    try {
+      const userId = `${this.name.toLowerCase()}_npc`;
+      const memories = await client.getAll(userId);
+
+      // Convert Mem0 format to local format and add to memories array
+      if (memories && memories.length > 0) {
+        const loadedCount = memories.length;
+        memories.forEach(m => {
+          this.memories.push({
+            text: m.memory || m.text,
+            ts: m.metadata?.timestamp || 0,
+            importance: m.metadata?.importance || 0.5
+          });
+        });
+        console.log(`${this.name} loaded ${loadedCount} memories from Mem0`);
+      }
+    } catch (error) {
+      console.warn(`Mem0 load failed for ${this.name}:`, error.message);
+    }
   }
 
   // UPDATE - Called every frame (~60 times per second). Makes the NPC walk toward their target
@@ -61,10 +88,26 @@ class NPC {
     this.sayUntil = this.scene.nowMs + ms;  // Show for 2.5 seconds by default
   }
 
-  // REMEMBER - Adds a new memory to their brain
-  remember(text, importance=0.5) {
+  // REMEMBER - Adds a new memory to their brain (local + Mem0 cloud)
+  async remember(text, importance=0.5) {
+    // Store locally (existing behavior)
     this.memories.push({ text, ts: this.scene.nowMs, importance });
     if (this.memories.length > 200) this.memories.shift();  // Forget old memories if over 200
+
+    // Store in Mem0 cloud for persistence across sessions
+    try {
+      await client.add(text, {
+        user_id: `${this.name.toLowerCase()}_npc`,
+        metadata: {
+          importance,
+          timestamp: this.scene.nowMs,
+          npc: this.name,
+          game: 'hacktown'
+        }
+      });
+    } catch (error) {
+      console.warn(`Mem0 save failed for ${this.name}:`, error.message);
+    }
   }
 
   // KNOWS CAFE EVENT - Checks if they heard about the 6pm café meetup
