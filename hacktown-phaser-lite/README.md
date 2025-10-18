@@ -2,7 +2,7 @@
 
 > **A living, breathing simulation where AI-powered NPCs think, remember, and interact autonomously in real-time.**
 
-Built in 12 hours as an exploration of emergent AI behavior. Each NPC has a unique personality, makes decisions with LLM reasoning, remembers past interactions, and lives a full lifecycle from birth to death.
+Originally built in 12 hours as an emergent AI experiment, now upgraded with an **emergent physics layer** that lets crowds respond to hunger, danger, and trauma without extra LLM calls. Each NPC has a unique personality, makes decisions with LLM reasoning for dialogue, remembers past interactions, and lives a full lifecycle from birth to death.
 
 ## 🎥 Demo
 
@@ -15,6 +15,8 @@ Built in 12 hours as an exploration of emergent AI behavior. Each NPC has a uniq
 - 👶👴 Grow from young (small) to elder (large)
 - ⚰️ Die from age, stress, or dangerous events
 - 🎭 React to world events (villains, festivals, storms)
+- 🌡️ Flow along simulated heat, food, and trauma fields that diffuse across town
+- 🌀 Self-organize via utility-driven crowd physics and emotional contagion
 
 ---
 
@@ -61,6 +63,10 @@ Open the printed localhost URL. Arrow keys / WASD to move. Watch NPCs think, tal
 | `V` | Stress 30% of NPCs (test red visual effect) |
 | `H` | Make 40% of NPCs happy (test green visual effect) |
 | `R` | Reset all NPCs to neutral colors |
+| `F` | Toggle scalar field overlay (heat / food / trauma) |
+| `T` | Inject a trauma plume for visualization (debug) |
+| `K` | Force a crisis event on a random NPC (stress test) |
+| `L` | Print NPC psychology table to the console |
 
 ---
 
@@ -100,6 +106,16 @@ Open the printed localhost URL. Arrow keys / WASD to move. Watch NPCs think, tal
 
 ---
 
+## ✨ Emergent Physics Layer
+
+- **Scalar fields (heat / food / trauma)**: `convex/fields.ts` maintains a 30x17 grid that diffuses danger, decays heat, regrows food, and lets trauma linger where bad things happened. NPCs sample these fields every tick to decide where to go.
+- **Utility-driven agents**: `convex/drives.ts` replaces LLM movement with hunger, loneliness, curiosity, fear, and faith drives. The best-scoring drive sets a new target while still leaving dialogue to Groq/Mem0.
+- **Crowd dynamics**: Separation penalties, herd alarms, and emotional contagion translate local crowd density into organic flocking and clustering. Heat spikes from overcrowded cafés push people outward instead of stacking.
+- **Trauma ecology**: Violent or despair events raise trauma fields that decay slowly, feeding back into the dark psychology system in `convex/darkDrives.ts`. Churches become natural refuges as despair climbs.
+- **Maintenance loops**: Scheduled jobs diffuse fields, evaporate heat, and rebuild food density so the town breathes over time. Press `F` in-game to visualize the fields, or `T` to paint a trauma cloud instantly.
+
+---
+
 ## 🧠 How It Works
 ### Personality System (6 Traits)
 
@@ -129,7 +145,16 @@ NPCs use **Groq's Llama 3.3 70B** model for contextual reasoning:
 4. **Action execution**: Move toward target, start conversation, or idle
 5. **Memory storage**: Save thought and action to Mem0 for future recall
 
-**Fallback mode**: If Groq API fails, NPCs use rule-based logic (random walk + social gathering)
+Movement now flows through the physics layer—utility scores turn those thoughts into concrete destinations that respect danger, hunger, and social pressure.
+
+**Fallback mode**: If Groq API fails, NPCs still generate movements through drives and can fall back to rule-based chatter.
+
+### Utility Drives & Crowd Physics
+
+- Hunger, loneliness, curiosity, fear, safety, and faith compete each tick; the winner picks a new target (café, park, friends, church, or a safe random spot).
+- Heat and trauma fields actively repel NPCs while food gradients pull them in, producing simmering hotspots around crises or long lines at the café.
+- Crowding reduces the desire to socialize (boids-style separation) and raises local heat, forcing self-regulating queues and stampedes during panic.
+- Emotional contagion averages nearby mood, so one meltdown can drag an entire square toward despair until relief arrives.
 
 ### Memory & Gossip
 
@@ -228,30 +253,18 @@ hacktown-phaser-lite/
 
 ---
 
-## 🔮 Roadmap (Phase 3: Emergent Physics)
+## ☄️ Emergent Physics Status
 
-**Status**: Deferred until after demo (8-9 hours estimated)
+**Live now**:
+- Scalar field grid with diffusion, evaporation, and regrowth (`convex/fields.ts`)
+- Utility-score movement that slashes LLM token usage while improving crowd believability (`convex/drives.ts`)
+- Trauma feedback loops that bleed into despair/aggression calculations (`convex/darkDrives.ts`)
+- Field maintenance and visualization hooks wired into the main tick and client overlay
 
-Planned features to reduce token costs and create more organic behavior:
-
-1. **Scalar Fields** (2 hours)
-   - Heat maps for danger zones (villains leave "hot" areas that spread and fade)
-   - Food density grids (NPCs cluster at high-food areas like café)
-   - Spatial memory without expensive LLM calls
-
-2. **Utility Drives** (2-3 hours)
-   - Replace LLM movement with hunger/loneliness/curiosity drives
-   - Keep LLM only for dialogue generation
-   - ~70% reduction in token costs
-
-3. **Boids Flocking** (2-3 hours)
-   - Separation, alignment, cohesion for organic crowd movement
-   - Natural clustering at social hubs (café, park)
-   - Stampede behavior during villain events
-
-4. **Enhanced Hazard Model** (30 min)
-   - Sigmoid curves for age-based mortality
-   - Correlate death with lived conditions (hungry + stressed + in danger = higher risk)
+**In exploration**:
+1. Weather-front fields (wind / rain) that push NPCs indoors during storms
+2. Cooperative work zones that build temporary prosperity hotspots
+3. Persistent memorials that slowly heal trauma fields after major tragedies
 
 ---
 
@@ -273,6 +286,11 @@ Planned features to reduce token costs and create more organic behavior:
 **Speech bubbles not showing**:
 - Open browser console - look for conversation logs
 - Ensure NPCs are within 80px of each other (press `D` to see debug circles)
+
+**Field overlay is empty**:
+- Let `worldTick` run at least once (start Convex + refresh client)
+- Confirm `convex/fields` table exists via Convex dashboard or rerun `npx convex run godEvents:spawnNPC` to kick the scheduler
+- Check the browser console for field fetch logs (`F` toggles the overlay)
 
 ---
 
