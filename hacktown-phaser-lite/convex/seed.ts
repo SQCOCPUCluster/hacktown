@@ -1,3 +1,4 @@
+import { logger } from "./logger";
 // Setup scripts to populate the database with starting NPCs and data
 import { internalMutation } from "./_generated/server";
 
@@ -7,7 +8,7 @@ export const seedWorld = internalMutation({
     // Don't seed if NPCs already exist
     const existing = await ctx.db.query("entities").first();
     if (existing) {
-      console.log("World already seeded");
+      logger.debug("World already seeded");
       return { message: "World already has entities" };
     }
 
@@ -174,7 +175,7 @@ export const seedWorld = internalMutation({
       importance: 0.5,
     });
 
-    console.log("World seeded successfully!");
+    logger.debug("World seeded successfully!");
     return {
       message: "World seeded with 5 NPCs and initial memories",
       entities: 5,

@@ -89,6 +89,84 @@ app.use((req, res, next) => {
 // async means this function can wait for things (like AI responses) without freezing
 app.post('/api/chat', async (req, res) => {
   try {
+    const { npcName, personality, memories, nearbyNPC, situation, currentTime } = req.body;
+
+    if (!npcName || !nearbyNPC) {
+      return res.status(400).json({ error: 'Missing required fields: npcName, nearbyNPC' });
+    }
+
+    // Build memory context
+    const memoryContext = memories && memories.length > 0
+      ? memories.slice(-5).map(m => `- ${m.text}`).join('\n')
+      : '- No recent memories';
+
+    // Build situation-specific instructions
+    let contextInstructions = '';
+    if (situation === 'cafe_invite') {
+      contextInstructions = 'You are inviting them to a café meetup at 18:00 (6 PM). Be friendly and casual.';
+    } else if (situation === 'cafe_mention') {
+      contextInstructions = 'You already know about the café meetup at 18:00. Mention it casually.';
+    } else {
+      contextInstructions = 'Make casual small talk about coding, projects, or daily life.';
+    }
+
+    // Build the system prompt
+    const systemPrompt = `You are ${npcName}, an NPC in HackTown, a game about indie hackers and builders.
+
+Your personality: ${personality || 'friendly, casual'}
+
+Your recent memories:
+${memoryContext}
+
+Current situation: It's ${currentTime || 'daytime'}. You're near ${nearbyNPC}.
+
+${contextInstructions}
+
+Generate ONE SHORT dialogue line (maximum 12 words). Be natural and conversational. No quotes or formatting.`;
+
+    // Call Ollama API (local LLM on port 11434)
+    console.log('🤖 Calling Ollama (gemma3:27b) for dialogue...');
+
+    const ollamaResponse = await fetch('http://localhost:11434/api/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gemma3:27b',
+        prompt: systemPrompt + '\n\nDialogue:',
+        stream: false,
+        options: {
+          temperature: 0.8,
+          num_predict: 30,
+        }
+      })
+    });
+
+    if (!ollamaResponse.ok) {
+      throw new Error(`Ollama API error: ${ollamaResponse.status}`);
+    }
+
+    const ollamaData = await ollamaResponse.json();
+    const dialogue = ollamaData.response?.trim().split('\n')[0] || '...';
+
+    res.json({ dialogue, npcName, nearbyNPC });
+
+  } catch (error) {
+    console.error('Ollama error:', error);
+    // Fallback to simple response
+    return res.json({
+      dialogue: "...",
+      npcName: req.body.npcName || "NPC",
+      nearbyNPC: req.body.nearbyNPC || "someone",
+      fallback: true
+    });
+  }
+
+  /* ORIGINAL GROQ CODE - KEPT FOR REFERENCE
+
+  /* GROQ API ENDPOINT - COMMENTED OUT FOR LOCAL USE
+  try {
     // ==============================================
     // STEP 7A: Extract the data sent from the game
     // ==============================================
@@ -253,6 +331,7 @@ Generate ONE SHORT dialogue line (maximum 12 words). Be natural and conversation
     // fallback: true tells the game to use a default dialogue
     res.status(500).json({ error: error.message, fallback: true });
   }
+  */
 });
 
 // ==============================================
@@ -279,13 +358,9 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
 
   // Print some friendly messages to the console so you know it's working
-  console.log(`🚀 Groq proxy server running on http://localhost:${PORT}`);
-
-  // Check if we have an API key and show a ✓ or ✗
-  console.log(`📡 Groq API Key: ${process.env.GROQ_API_KEY ? '✓ Configured' : '✗ Missing'}`);
-
-  // Show which AI model we're using
-  console.log(`🤖 Model: ${process.env.GROQ_MODEL || 'llama-3.1-8b-instant'}`);
+  console.log(`🚀 NPC Dialogue server running on http://localhost:${PORT}`);
+  console.log(`🤖 Using Ollama (gemma3:27b) on http://localhost:11434`);
+  console.log(`📡 Groq API: Disabled (using local Ollama instead)`);
 });
 
 // ==============================================

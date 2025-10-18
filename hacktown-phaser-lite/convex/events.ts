@@ -12,7 +12,7 @@ export const getActiveEvents = query({
   },
 });
 
-// Start a new event (like a storm or festival)
+// Start a new event (like a storm or festival) - LEGACY, use godEvents instead
 export const createEvent = mutation({
   args: {
     type: v.string(),
@@ -21,12 +21,31 @@ export const createEvent = mutation({
     endTime: v.number(),
     stressModifier: v.number(),
     dangerModifier: v.number(),
+    locationX: v.optional(v.number()),
+    locationY: v.optional(v.number()),
+    locationName: v.optional(v.string()),
+    scope: v.optional(v.string()),
+    severity: v.optional(v.number()),
+    affectedRadius: v.optional(v.number()),
+    witnessIds: v.optional(v.array(v.id("entities"))),
   },
   handler: async (ctx, args) => {
-    // Create event and mark it as active
+    // Create event and mark it as active (with defaults for new fields)
     return await ctx.db.insert("events", {
-      ...args,
+      type: args.type,
+      description: args.description,
+      startTime: args.startTime,
+      endTime: args.endTime,
+      stressModifier: args.stressModifier,
+      dangerModifier: args.dangerModifier,
       active: true,
+      locationX: args.locationX ?? 450,  // Default to center
+      locationY: args.locationY ?? 260,
+      locationName: args.locationName,
+      scope: args.scope ?? "citywide",   // Legacy events are citywide
+      severity: args.severity ?? 0.5,
+      affectedRadius: args.affectedRadius ?? 500,
+      witnessIds: args.witnessIds ?? [],
     });
   },
 });
