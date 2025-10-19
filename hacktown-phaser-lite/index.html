@@ -49,14 +49,14 @@
         letter-spacing: -1px;
       }
 
-      /* Thought Panel - Bottom of screen */
-      #thought-panel {
+      /* Main Panel - Bottom of screen */
+      #main-panel {
         position: fixed;
         left: 50%;
         bottom: 10px;
         transform: translateX(-50%);
         background: rgba(0, 0, 0, 0.85);
-        padding: 12px 16px;
+        padding: 14px 18px;
         border-radius: 10px;
         border: 2px solid #333;
         z-index: 10;
@@ -64,22 +64,83 @@
         font-size: 11px;
         line-height: 1.8;
         color: #ddd;
-        max-width: 700px;
-        min-width: 500px;
-        max-height: 150px;
-        overflow-y: auto;
+        max-width: 900px;
+        min-width: 560px;
+        display: flex;
+        gap: 18px;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
-      #thought-panel .title {
+      .panel-column {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 250px;
+        min-height: 0;
+        max-height: 160px;
+      }
+      #commentary-panel {
+        gap: 8px;
+      }
+      #thought-panel {
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 8px;
+        padding: 8px 10px;
+        overflow-y: auto;
+      }
+      #main-panel .title {
         font-size: 11px;
         font-weight: 700;
         margin-bottom: 6px;
         color: #9ad;
         letter-spacing: 1px;
         text-align: center;
-        border-bottom: 1px solid #444;
-        padding-bottom: 4px;
+      }
+      #commentary-panel .tech-stack {
+        font-size: 10px;
+        color: #ccc;
+        text-align: center;
+        margin-bottom: 6px;
+        letter-spacing: 0.5px;
+      }
+      #commentary-panel .commentary-stream {
+        flex: 1;
+        margin-top: 6px;
+        padding-top: 4px;
+        border-top: 1px solid #444;
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: thin;
+        scrollbar-color: #555 rgba(0,0,0,0.3);
+      }
+      #commentary-panel .commentary-line {
+        font-size: 10px;
+        color: #ddd;
+        margin: 2px 0;
+        opacity: 0;
+        transition: opacity 0.4s ease;
+      }
+      #commentary-panel .commentary-line.visible {
+        opacity: 1;
+      }
+      #commentary-panel .commentary-stream::-webkit-scrollbar {
+        width: 6px;
+      }
+      #commentary-panel .commentary-stream::-webkit-scrollbar-track {
+        background: rgba(0,0,0,0.3);
+        border-radius: 3px;
+      }
+      #commentary-panel .commentary-stream::-webkit-scrollbar-thumb {
+        background: #555;
+        border-radius: 3px;
+      }
+      #thought-panel .subtitle {
+        font-size: 10px;
+        font-weight: 600;
+        color: #9ad;
+        text-transform: uppercase;
+        margin: 6px 0 4px;
+        letter-spacing: 0.5px;
       }
       #thought-panel .thought-list {
         list-style: none;
@@ -230,12 +291,24 @@
       </div>
     </div>
 
-    <!-- Thought Panel - Bottom of screen -->
-    <div id="thought-panel">
-      <div class="title">NEARBY NPC THOUGHTS</div>
-      <ul class="thought-list" id="thought-list">
-        <!-- Populated dynamically by main.js -->
-      </ul>
+    <!-- Main Panel - Bottom of screen -->
+    <div id="main-panel">
+      <div id="commentary-panel" class="panel-column">
+        <div class="title">HACKTOWN COMMENTARY</div>
+        <div class="tech-stack" id="commentary-tech">
+          ⚙️ Tech Stack: Phaser 3 • Convex • Node.js • Groq/Ollama AI
+        </div>
+        <div class="commentary-stream" id="commentary-stream">
+          <!-- Commentary lines injected by main.js -->
+        </div>
+      </div>
+      <div id="thought-panel" class="panel-column">
+        <div class="title">NEARBY NPC THOUGHTS</div>
+        <div class="subtitle">Within 200px of player</div>
+        <ul class="thought-list" id="thought-list">
+          <!-- Populated dynamically by main.js -->
+        </ul>
+      </div>
     </div>
 
     <!-- Protagonist Panel - Right side -->

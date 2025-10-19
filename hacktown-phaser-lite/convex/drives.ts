@@ -52,6 +52,27 @@ function distance(x1: number, y1: number, x2: number, y2: number): number {
 }
 
 /**
+ * Deterministic pseudo-random helper (0-1 range) for repeatable agent quirks
+ */
+function pseudoRandom(seed: string): number {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
+    hash |= 0; // Convert to 32bit int
+  }
+  const x = Math.sin(hash) * 10000;
+  return x - Math.floor(x);
+}
+
+/**
+ * Convert deterministic noise into a signed jitter scaled by amplitude
+ */
+function jitterFromSeed(seed: string, amplitude: number): number {
+  const normalized = pseudoRandom(seed);
+  return (normalized - 0.5) * 2 * amplitude;
+}
+
+/**
  * Find argmax - return key with highest value
  */
 function argmax(scores: UtilityScores): UtilityAction {
@@ -191,7 +212,8 @@ function findSafeDirection(
 export function decideAction(
   entity: any,
   allNPCs: any[],
-  fieldCache: Array<{ gridX: number; gridY: number; type: string; value: number }>
+  fieldCache: Array<{ gridX: number; gridY: number; type: string; value: number }>,
+  currentTime: number
 ): UtilityAction {
   // Extract NPC state
   const energy = entity.energy ?? 0.7;
@@ -268,13 +290,14 @@ export function decideAction(
   const traumaCount = entity.traumaMemories?.length ?? 0;
   const traumaUrgency = clamp01(traumaCount / 5); // 0-5 traumas normalized
   const SEEK_FAITH_SCORE =
-    0.7 * despair +                           // High despair → seek meaning/salvation
+    0.4 * despair +                           // Despair → seek salvation (lowered threshold)
+    0.3 * (1 - mood) +                        // Low mood → seek hope (boosted weight)
+    0.3 * entity.personality.order +          // Orderly people attend regularly (NEW)
     0.5 * stress +                            // Stressed → seek spiritual comfort
     0.4 * traumaUrgency +                     // Traumatized → seek redemption
     0.3 * localTrauma +                       // Trauma field → seek church sanctuary
-    0.2 * (1 - mood) +                        // Low mood → seek hope
     -0.3 * entity.personality.boldness +      // Timid NPCs more religious
-    -0.2 * energy;                            // Need energy to walk to church
+    0.2 * (1 - energy);                       // Low energy → seek comfort (FIXED: was negative)
 
   const scores: UtilityScores = {
     SEEK_FOOD: SEEK_FOOD_SCORE,
@@ -285,6 +308,34 @@ export function decideAction(
     SEEK_SAFETY: SEEK_SAFETY_SCORE,
     SEEK_FAITH: SEEK_FAITH_SCORE,
   };
+
+  // Personality-informed weighting to keep agents differentiated
+  const empathy = clamp01(entity.personality.empathy ?? 0.5);
+  const curiosity = clamp01(entity.personality.curiosity ?? 0.5);
+  const weirdness = clamp01(entity.personality.weirdness ?? 0.5);
+  const boldness = clamp01(entity.personality.boldness ?? 0.5);
+  const orderTrait = clamp01(entity.personality.order ?? 0.5);
+
+  scores.SOCIALIZE += empathy * 0.15 + curiosity * 0.05 - orderTrait * 0.03;
+  scores.EXPLORE += curiosity * 0.18 + weirdness * 0.08 - orderTrait * 0.1;
+  scores.SEEK_FOOD += (1 - boldness) * 0.07 + orderTrait * 0.05;
+  scores.AVOID_HEAT += (1 - boldness) * 0.08 + stress * 0.02;
+  scores.LOITER += orderTrait * 0.12 - curiosity * 0.06;
+  scores.SEEK_SAFETY += orderTrait * 0.1 + (1 - boldness) * 0.05 + (1 - safety) * 0.04;
+  scores.SEEK_FAITH += (1 - boldness) * 0.04 + (1 - mood) * 0.05 + weirdness * 0.02;
+
+  // Agent-specific jitter so cohorts don't synchronize perfectly
+  const idSeed = String(entity._id ?? entity.name ?? "");
+  const timeBucket = Math.floor((currentTime ?? 0) / 5); // Refresh quirks every ~5 minutes
+  const noiseAmplitude = Math.max(0.015, 0.02 + weirdness * 0.08 - orderTrait * 0.04);
+  const waveAmplitude = noiseAmplitude * 0.6;
+
+  (Object.keys(scores) as UtilityAction[]).forEach((action) => {
+    const staticBias = jitterFromSeed(`${idSeed}:${action}:static`, noiseAmplitude);
+    const phase = pseudoRandom(`${idSeed}:${action}:phase`) * Math.PI * 2;
+    const timeWave = Math.sin(timeBucket * 0.8 + phase) * waveAmplitude;
+    scores[action] += staticBias + timeWave;
+  });
 
   // Return action with highest utility
   return argmax(scores);
@@ -304,19 +355,64 @@ export function generateTargetFromAction(
 
   switch (action) {
     case "SEEK_FOOD": {
-      // Go to highest food density (café is best, park second)
-      const cafe = LOCATIONS.find((l) => l.name === "Café");
-      const park = LOCATIONS.find((l) => l.name === "Park");
+      const foodSpots = LOCATIONS.filter((loc) =>
+        ["cafe", "park", "school"].includes(loc.type)
+      );
+      const empathy = clamp01(entity.personality?.empathy ?? 0.5);
+      const curiosity = clamp01(entity.personality?.curiosity ?? 0.5);
+      const weirdness = clamp01(entity.personality?.weirdness ?? 0.5);
+      const orderTrait = clamp01(entity.personality?.order ?? 0.5);
+      const entityId = String(entity._id ?? entity.name ?? "");
 
-      // Sample food at both locations
-      const cafeFood = cafe ? sampleFieldFromCache(cafe.x, cafe.y, "food", fieldCache) : 0;
-      const parkFood = park ? sampleFieldFromCache(park.x, park.y, "food", fieldCache) : 0;
+      const candidates = (foodSpots.length > 0 ? foodSpots : LOCATIONS).map((loc) => {
+        const foodValue = sampleFieldFromCache(loc.x, loc.y, "food", fieldCache);
+        const heatValue = sampleFieldFromCache(loc.x, loc.y, "heat", fieldCache);
+        const distToSpot = distance(entity.x, entity.y, loc.x, loc.y);
+        const normalizedDistance = Math.min(1, distToSpot / 500);
 
-      const target = cafeFood >= parkFood && cafe ? cafe : park!;
+        const crowdCount = allNPCs.reduce((count, npc) => {
+          if (npc._id === entity._id) return count;
+          return distance(npc.x, npc.y, loc.x, loc.y) <= loc.radius ? count + 1 : count;
+        }, 0);
+        const crowdPressure = Math.min(1, crowdCount / 6);
 
+        let personalityBonus = 0;
+        if (loc.type === "cafe") {
+          personalityBonus += empathy * 0.12 + orderTrait * 0.05;
+        } else if (loc.type === "park") {
+          personalityBonus += curiosity * 0.1 + weirdness * 0.1;
+        } else if (loc.type === "school") {
+          personalityBonus += orderTrait * 0.08 + curiosity * 0.04;
+        }
+
+        const noise = jitterFromSeed(`${entityId}:${loc.name}:food`, 0.1 * (0.4 + weirdness));
+
+        const score =
+          foodValue * 0.6 +
+          (1 - normalizedDistance) * 0.2 +
+          clamp01(1 - heatValue) * 0.1 +
+          (1 - crowdPressure) * 0.1 +
+          personalityBonus +
+          noise;
+
+        return { loc, score };
+      });
+
+      if (candidates.length === 0) {
+        return { x: entity.x, y: entity.y };
+      }
+
+      let best = candidates[0];
+      for (let i = 1; i < candidates.length; i++) {
+        if (candidates[i].score > best.score) {
+          best = candidates[i];
+        }
+      }
+
+      const scatterRadius = Math.max(30, Math.min(80, best.loc.radius));
       return {
-        x: target.x + (Math.random() - 0.5) * 60,
-        y: target.y + (Math.random() - 0.5) * 60,
+        x: best.loc.x + (Math.random() - 0.5) * scatterRadius,
+        y: best.loc.y + (Math.random() - 0.5) * scatterRadius,
       };
     }
 

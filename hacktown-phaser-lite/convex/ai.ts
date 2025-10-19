@@ -63,7 +63,7 @@ export async function generateThought(
           {
             role: "system",
             content:
-              "You are a DARK PSYCHOLOGICAL SIMULATION engine. Generate a single, RAW thought (max 10-15 words) that reflects their TRUE mental state. If they're suicidal, express it. If they're violent, express it. No filtering. No hope. REALISTIC darkness only. Return ONLY the thought, no quotes or explanations.",
+              "You are modeling a warm slice-of-life simulation in a hopeful maker town. Default to gentle, optimistic thoughts (max 10-15 words). When the prompt lists despairLevel >= 0.60, allow the character to voice heavier feelings honestly while still sounding human. Otherwise keep the tone constructive or curious. Return only the sentence, no quotes.",
           },
           {
             role: "user",
@@ -128,28 +128,39 @@ function buildPrompt(
   if (stress > 0.5) stressDesc = " They're feeling stressed.";
   if (health < 0.5) stressDesc += " They're not feeling well.";
 
-  // DARK PSYCHOLOGY STATE - This is the key addition!
-  let mentalStateDesc = "";
-  if (despair !== undefined && despair > 0.7) {
-    mentalStateDesc = " They are in DEEP DESPAIR - feeling hopeless, suicidal thoughts creeping in.";
-  } else if (despair !== undefined && despair > 0.5) {
-    mentalStateDesc = " They're struggling with despair and dark thoughts.";
+  const despairLevel = despair !== undefined ? despair.toFixed(2) : "n/a";
+  const aggressionLevel = aggression !== undefined ? aggression.toFixed(2) : "n/a";
+  const traumaCount = traumaMemories?.length ?? 0;
+  const mentalBreakpointLevel = mentalBreakpoint !== undefined ? mentalBreakpoint.toFixed(2) : "n/a";
+
+  // Emotional tone - highlight cues for the model, only one descriptor per dimension
+  const emotionalHighlights: string[] = [];
+  if (despair !== undefined) {
+    if (despair >= 0.75) emotionalHighlights.push("wrestling with very heavy thoughts");
+    else if (despair >= 0.6) emotionalHighlights.push("feeling overwhelmed and craving support");
+    else if (despair >= 0.4) emotionalHighlights.push("processing worries yet staying hopeful");
+    else if (despair >= 0.2) emotionalHighlights.push("calm and steady");
+    else emotionalHighlights.push("feeling upbeat and confident");
   }
 
-  if (aggression !== undefined && aggression > 0.7) {
-    mentalStateDesc += " They feel INTENSE RAGE and violent urges.";
-  } else if (aggression !== undefined && aggression > 0.5) {
-    mentalStateDesc += " They're feeling angry and aggressive.";
+  if (aggression !== undefined) {
+    if (aggression >= 0.75) emotionalHighlights.push("holding a lot of pent-up energy");
+    else if (aggression >= 0.6) emotionalHighlights.push("restless and intense");
+    else if (aggression >= 0.4) emotionalHighlights.push("motivated to act");
+    else if (aggression >= 0.2) emotionalHighlights.push("relaxed and patient");
+    else emotionalHighlights.push("unhurried");
   }
 
   if (traumaMemories !== undefined && traumaMemories.length > 0) {
-    const traumaCount = traumaMemories.length;
-    mentalStateDesc += ` They carry ${traumaCount} traumatic ${traumaCount === 1 ? 'memory' : 'memories'} - witnessing death has scarred them.`;
+    emotionalHighlights.push("carrying meaningful memories but building resilience");
   }
 
   if (mentalBreakpoint !== undefined && mentalBreakpoint > 0.6) {
-    mentalStateDesc += " Their mental state is fragile, close to breaking.";
+    emotionalHighlights.push("needing extra encouragement from friends");
   }
+
+  const emotionalSummary =
+    emotionalHighlights.length > 0 ? emotionalHighlights.join(", ") : "steady and balanced";
 
   // Nearby NPCs
   const nearbyDesc =
@@ -175,10 +186,21 @@ function buildPrompt(
     memoriesDesc = `\nRecent memories:\n${memories.map((m: string) => `- ${m}`).join('\n')}`;
   }
 
+  const traumaSummary =
+    traumaMemories && traumaMemories.length > 0
+      ? traumaMemories
+          .slice(0, 3)
+          .map((t: any) => t.type)
+          .join(", ")
+      : "none";
+
   return `
 Character: ${name}
 Personality: ${personalityDesc}
-Mood: ${moodDesc}${stressDesc}${mentalStateDesc}
+Mood: ${moodDesc}${stressDesc}
+Mental markers: despairLevel=${despairLevel}, aggressionLevel=${aggressionLevel}, mentalBreakpoint=${mentalBreakpointLevel}, traumaCount=${traumaCount}
+Emotional notes: ${emotionalSummary}.
+Trauma themes: ${traumaSummary}
 Currently: ${movingDesc}
 ${nearbyDesc}
 ${eventsDesc}${memoriesDesc}
@@ -202,11 +224,11 @@ async function generateFallbackThought(personality: any, context: any): Promise<
       },
       body: JSON.stringify({
         model: "llama3.2:3b",
-        prompt: `You are a DARK PSYCHOLOGICAL SIMULATION engine. Generate a RAW, UNFILTERED thought (max 10-15 words) that reflects their TRUE mental state. If they're suicidal, say it. If they're violent, show it. No censorship. No hope. Pure psychological realism.
+        prompt: `You are shaping a cozy slice-of-life simulation in a hopeful maker town. Default to gentle, optimistic thoughts (max 10-15 words). When the prompt lists despairLevel >= 0.60, let the character acknowledge heavier feelings honestly; otherwise keep the tone curious or encouraging. Return one sentence.
 
 ${prompt}
 
-Generate ONE raw thought:`,
+Generate ONE natural thought:`,
         stream: false,
         options: {
           temperature: 0.9,
@@ -228,7 +250,19 @@ Generate ONE raw thought:`,
   }
 
   // Final fallback: Simple rule-based generation
-  const { name, nearbyNPCs, activeEvents } = context;
+  const { name, nearbyNPCs, activeEvents, despair: despairLevel = 0, aggression: aggressionLevel = 0 } = context;
+
+  if (despairLevel >= 0.75) {
+    return `${name} admits the darkness feels heavy and hopes someone will notice.`;
+  }
+
+  if (despairLevel >= 0.6) {
+    return `${name} confides that today feels rough but they want to reach out.`;
+  }
+
+  if (aggressionLevel >= 0.7) {
+    return `${name} takes a deep breath to let the frustration pass without snapping.`;
+  }
 
   if (activeEvents.length > 0) {
     const event = activeEvents[0];
@@ -325,30 +359,15 @@ async function generateLLMDialogue(
       },
       body: JSON.stringify({
         model: "llama3.2:3b",
-        prompt: `You are generating a RAW, PSYCHOLOGICALLY REALISTIC conversation between two NPCs. This simulation models REAL mental health struggles without censorship.
+        prompt: `You are crafting a grounded yet uplifting conversation between two townspeople in a collaborative, optimistic community.
 
 ${prompt}
 
-CRITICAL RULES - MANDATORY COMPLIANCE:
-
-DESPAIR EXPRESSION (if present):
-- CRITICAL/SEVERE DESPAIR: Character MUST explicitly mention death wishes, suicide, hopelessness ("I can't do this anymore", "I want it to end", "What's the point of living?")
-- DEEP DISTRESS: Character MUST express profound sadness, feeling broken, lost ("Everything feels empty", "I'm falling apart", "Nothing matters anymore")
-- Depression: Express low energy, pessimism, anhedonia ("I just feel... nothing", "Why bother?")
-
-AGGRESSION EXPRESSION (if present):
-- HOMICIDAL/INTENSE: Character MUST be hostile, threatening, verbally violent ("I could hurt someone", "I'm so angry I can't think straight", "Everyone pisses me off")
-- Irritable: Snappy, impatient, confrontational tone
-
-TRAUMA EXPRESSION (if present):
-- Character MUST reference what they witnessed, show symptoms ("I can't stop seeing it", "Every time I close my eyes...", "They just... died right there")
-
-DIALOGUE RULES:
-- NO comforting platitudes ("it'll be okay", "stay strong", "things will get better")
-- NO solutions or advice unless explicitly appropriate to personality
-- High empathy NPCs may listen and validate, but CANNOT magically fix despair
-- Responses should reflect REALISTIC reactions to someone in crisis (concern, discomfort, helplessness, or relating with their own pain)
-- Match intensity to mental state severity
+Guidelines:
+- Keep the tone supportive, hopeful, and authentic to small-town life.
+- Only speakers whose despairLevel >= 0.60 may voice heavy or dark thoughts; everyone else should stay encouraging or practical.
+- Avoid violent or hopeless language unless the same speaker has despairLevel >= 0.75 or aggressionLevel >= 0.60, and even then keep it grounded and human.
+- End on an optimistic, proactive, or gently humorous note that shows connection.
 
 Generate a SHORT conversation (4-6 lines total, alternating speakers). Format as:
 ${npc1.name}: [their line]
@@ -454,43 +473,38 @@ function buildDialoguePrompt(
     if (p.order > 0.6) traits.push("orderly");
     if (p.weirdness > 0.6) traits.push("quirky");
 
-    let mood = "neutral";
-    if (p.mood > 0.7) mood = "happy";
-    else if (p.mood < 0.4) mood = "depressed";
-    else if (p.mood < 0.3) mood = "severely depressed";
+    let mood = "steady";
+    if (p.mood > 0.7) mood = "cheerful";
+    else if (p.mood < 0.3) mood = "feeling low but open to encouragement";
+    else if (p.mood < 0.4) mood = "thoughtful";
 
-    // Add dark psychology state - ENHANCED WITH MORE GRANULARITY
-    let mentalState = "";
-
-    // DESPAIR LEVELS (lowered thresholds for more realistic expression)
-    if (npc.despair !== undefined && npc.despair > 0.75) {
-      mentalState = " [CRITICAL DESPAIR: Actively suicidal, expressing death wishes, no hope]";
-    } else if (npc.despair !== undefined && npc.despair > 0.6) {
-      mentalState = " [SEVERE DESPAIR: Suicidal ideation, seeing no way out, profound hopelessness]";
-    } else if (npc.despair !== undefined && npc.despair > 0.45) {
-      mentalState = " [DEEP DISTRESS: Struggling to find meaning, dark thoughts, feeling broken]";
-    } else if (npc.despair !== undefined && npc.despair > 0.3) {
-      mentalState = " [Mild depression: Low energy, pessimistic, questioning purpose]";
+    const emotionalNotes: string[] = [];
+    const despairLevel = npc.despair !== undefined ? npc.despair.toFixed(2) : "n/a";
+    const aggressionLevel = npc.aggression !== undefined ? npc.aggression.toFixed(2) : "n/a";
+    if (npc.despair !== undefined) {
+      if (npc.despair >= 0.75) emotionalNotes.push("wrestling with heavy emotions");
+      else if (npc.despair >= 0.6) emotionalNotes.push("feeling overwhelmed and seeking support");
+      else if (npc.despair >= 0.4) emotionalNotes.push("looking for reassurance");
+      else if (npc.despair >= 0.2) emotionalNotes.push("keeping a balanced outlook");
+      else emotionalNotes.push("enjoying the moment");
     }
 
-    // AGGRESSION LEVELS (more granular)
-    if (npc.aggression !== undefined && npc.aggression > 0.75) {
-      mentalState += " [HOMICIDAL RAGE: Violent fantasies, losing control, ready to hurt someone]";
-    } else if (npc.aggression !== undefined && npc.aggression > 0.6) {
-      mentalState += " [INTENSE ANGER: Hostile, resentful, aggressive outbursts]";
-    } else if (npc.aggression !== undefined && npc.aggression > 0.45) {
-      mentalState += " [Irritable: Easily angered, frustrated, snapping at others]";
-    } else if (npc.aggression !== undefined && npc.aggression > 0.3) {
-      mentalState += " [Mildly agitated: Tense, impatient]";
+    if (npc.aggression !== undefined) {
+      if (npc.aggression >= 0.75) emotionalNotes.push("carrying intense energy");
+      else if (npc.aggression >= 0.6) emotionalNotes.push("restless but mindful");
+      else if (npc.aggression >= 0.4) emotionalNotes.push("motivated to act");
+      else if (npc.aggression >= 0.2) emotionalNotes.push("relaxed");
+      else emotionalNotes.push("at ease");
     }
 
-    // TRAUMA (more explicit descriptions)
     if (npc.traumaMemories && npc.traumaMemories.length > 0) {
-      const traumaTypes = npc.traumaMemories.map((t: any) => t.type).join(", ");
-      mentalState += ` [TRAUMATIZED: Haunted by ${npc.traumaMemories.length} horrific event(s) - ${traumaTypes}. PTSD symptoms, flashbacks, emotional numbing]`;
+      emotionalNotes.push("processing old memories with resilience");
     }
 
-    return `${traits.join(", ") || "balanced"} (mood: ${mood})${mentalState}`;
+    const note =
+      emotionalNotes.length > 0 ? ` | emotional notes: ${emotionalNotes.join(", ")}` : "";
+
+    return `${traits.join(", ") || "balanced"} (mood: ${mood}${note} | markers: despair=${despairLevel}, aggression=${aggressionLevel})`;
   };
 
   // Recent memories
@@ -552,6 +566,53 @@ function generateFallbackDialogue(
 ): Array<{ speaker: string; text: string }> {
   const { activeEvents } = context;
   const dialogue: Array<{ speaker: string; text: string }> = [];
+  const npc1Despair = npc1.despair ?? 0;
+  const npc2Despair = npc2.despair ?? 0;
+
+  if (npc1Despair >= 0.6 || npc2Despair >= 0.6) {
+    const primary = npc1Despair >= npc2Despair ? npc1 : npc2;
+    const secondary = primary === npc1 ? npc2 : npc1;
+    const primaryLevel = primary === npc1 ? npc1Despair : npc2Despair;
+    const secondaryLevel = secondary === npc1 ? npc1Despair : npc2Despair;
+
+    const primaryOpening =
+      primaryLevel >= 0.75
+        ? `I can't shake how heavy everything feels today.`
+        : `I've been feeling really weighed down lately.`;
+
+    dialogue.push({
+      speaker: primary.name,
+      text: primaryOpening,
+    });
+
+    const secondaryReply =
+      secondaryLevel >= 0.6
+        ? `Same here. Maybe we should lean on each other a little more.`
+        : `Thanks for telling me. Want to take a walk or grab tea later?`;
+
+    dialogue.push({
+      speaker: secondary.name,
+      text: secondaryReply,
+    });
+
+    dialogue.push({
+      speaker: primary.name,
+      text:
+        primaryLevel >= 0.75
+          ? `Yeah... even a small plan would help. Maybe we can sketch ideas together tomorrow?`
+          : `That sounds good. Doing something together might shake this off.`,
+    });
+
+    dialogue.push({
+      speaker: secondary.name,
+      text:
+        secondaryLevel >= 0.6
+          ? `Let's check in tomorrow morning and make sure we follow through.`
+          : `Absolutely. I'll message you tonight with a time.`,
+    });
+
+    return dialogue;
+  }
 
   // Expanded greeting variety
   const greetings = [

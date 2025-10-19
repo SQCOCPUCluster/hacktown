@@ -6,7 +6,16 @@ import { logger } from './logger.js';
 const convexUrl = import.meta.env.VITE_CONVEX_URL || "http://127.0.0.1:3210";
 const convex = new ConvexHttpClient(convexUrl);
 
+// Expose convex client to browser console for debugging
+window.convex = convex;
+
+// Helper function to spawn religious NPCs from console
+window.spawnReligiousNPC = async () => {
+  return await convex.mutation("entities:spawnReligiousNPC");
+};
+
 logger.info('Connecting to Convex at:', convexUrl);
+logger.info('💡 Console commands available: spawnReligiousNPC()');
 
 // NPC CLASS - Enhanced with Convex sync
 // ============================================================
@@ -37,6 +46,17 @@ class NPC {
         10, 0,     // top right
         0xFFFFFF   // white
       ).setOrigin(0.5, 1);
+    } else if (this.type === "religious") {
+      // Religious NPC - cross shape (✝)
+      const crossGraphics = scene.add.graphics();
+      crossGraphics.fillStyle(this.color, 1);
+      // Vertical bar (6px wide, 18px tall)
+      crossGraphics.fillRect(-3, -18, 6, 18);
+      // Horizontal bar (12px wide, 6px tall, positioned at top third)
+      crossGraphics.fillRect(-6, -12, 12, 6);
+      crossGraphics.generateTexture('cross_' + this.id, 12, 18);
+      crossGraphics.destroy();
+      this.sprite = scene.add.image(entityData.x, entityData.y, 'cross_' + this.id).setOrigin(0.5, 1);
     } else {
       // Normal NPC - rectangle
       this.sprite = scene.add.rectangle(entityData.x, entityData.y, 12, 18, this.color).setOrigin(0.5, 1);
@@ -572,6 +592,271 @@ class ConversationManager {
   }
 }
 
+// COMMENTARY MANAGER - Streams curated narration to the bottom panel
+// ============================================================
+class CommentaryManager {
+  constructor(scene) {
+    this.scene = scene;
+    this.techEl = document.getElementById('commentary-tech');
+    this.streamEl = document.getElementById('commentary-stream');
+    this.queue = [];
+    this.timeAccumulator = 0;
+    this.displayDelay = 6; // seconds between lines so narration feels paced
+    this.maxLines = 20;
+
+    // Track last known values to avoid repeating the same beat
+    this.lastPopulation = undefined;
+    this.lastBirths = undefined;
+    this.lastDeaths = undefined;
+    this.lastConversationCount = undefined;
+    this.lastAnnouncedTimeBlock = null;
+    this.lastSocioSnapshot = null;
+    this.lastProtagonistId = null;
+    this.lastProtagonistAlive = null;
+
+    this.bootstrap();
+  }
+
+  bootstrap() {
+    if (this.techEl) {
+      this.techEl.textContent = '⚙️ Tech Stack: Phaser 3 • Convex realtime sync • Node.js orchestrator • Groq/Ollama LLM agents';
+    }
+
+    this.enqueue('Booting HackTown simulation pipeline…');
+    this.enqueue('Phaser sketches the grid while Convex streams fresh NPC state every second.');
+    this.enqueue('LLM-driven citizens gossip toward the 6:00 PM café rendezvous.');
+
+    // Show the first line immediately so the panel never sits empty
+    if (this.streamEl && this.queue.length > 0) {
+      const firstMessage = this.queue.shift();
+      this.appendLine(firstMessage);
+      this.timeAccumulator = 0;
+    }
+  }
+
+  enqueue(message) {
+    if (!message) return;
+    this.queue.push(message);
+  }
+
+  update(dt) {
+    if (!this.streamEl || this.queue.length === 0) {
+      this.timeAccumulator = Math.min(this.timeAccumulator, this.displayDelay);
+      return;
+    }
+
+    this.timeAccumulator += dt;
+    if (this.timeAccumulator >= this.displayDelay) {
+      this.timeAccumulator = 0;
+      const message = this.queue.shift();
+      this.appendLine(message);
+    }
+  }
+
+  appendLine(text) {
+    if (!this.streamEl || !text) return;
+
+    const line = document.createElement('div');
+    line.className = 'commentary-line';
+    line.textContent = text;
+    this.streamEl.appendChild(line);
+
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        line.classList.add('visible');
+        this.streamEl.scrollTop = this.streamEl.scrollHeight;
+      });
+    } else {
+      line.classList.add('visible');
+      this.streamEl.scrollTop = this.streamEl.scrollHeight;
+    }
+
+    while (this.streamEl.children.length > this.maxLines) {
+      this.streamEl.removeChild(this.streamEl.firstChild);
+    }
+
+    // Ensure newest line stays in view after any removals
+    this.streamEl.scrollTop = this.streamEl.scrollHeight;
+  }
+
+  handleConvexUpdate({ worldState, conversations, protagonist, agentCount }) {
+    if (!worldState) return;
+
+    this.reportPopulation(worldState.population, agentCount);
+    this.reportBirths(worldState.totalBirths);
+    this.reportDeaths(worldState.totalDeaths);
+    this.reportTime(worldState.currentTime || 0);
+    this.reportSocioEconomic(worldState.socioEconomic);
+    this.reportConversationActivity(conversations);
+    this.reportProtagonist(protagonist);
+  }
+
+  reportPopulation(population = 0, agentCount = 0) {
+    if (this.lastPopulation === undefined) {
+      this.lastPopulation = population;
+      this.enqueue(`👥 Tracking ${population} citizens live (${agentCount} rendered on this client).`);
+      return;
+    }
+
+    if (population !== this.lastPopulation) {
+      const delta = population - this.lastPopulation;
+      this.lastPopulation = population;
+
+      if (delta > 0) {
+        this.enqueue(`🍼 Population grew to ${population}. A newcomer just joined the town.`);
+      } else {
+        this.enqueue(`🕯️ Population slipped to ${population}. A resident story just ended.`);
+      }
+    }
+  }
+
+  reportBirths(totalBirths = 0) {
+    if (this.lastBirths === undefined) {
+      this.lastBirths = totalBirths;
+      return;
+    }
+
+    if (totalBirths > this.lastBirths) {
+      const birthsSince = totalBirths - this.lastBirths;
+      this.lastBirths = totalBirths;
+      this.enqueue(`🎉 ${birthsSince} new birth${birthsSince > 1 ? 's' : ''} recorded (${totalBirths} total).`);
+    }
+  }
+
+  reportDeaths(totalDeaths = 0) {
+    if (this.lastDeaths === undefined) {
+      this.lastDeaths = totalDeaths;
+      return;
+    }
+
+    if (totalDeaths > this.lastDeaths) {
+      const losses = totalDeaths - this.lastDeaths;
+      this.lastDeaths = totalDeaths;
+      this.enqueue(`⚰️ We logged ${losses} loss${losses > 1 ? 'es' : ''}. Memorials shimmer where they fell.`);
+    }
+  }
+
+  reportTime(simMinutes = 0) {
+    const hourOffset = 8; // The world clock starts at 08:00 in the HUD
+    const totalMinutes = Math.floor(simMinutes);
+    const timeBlock = Math.floor(totalMinutes / 30); // Narrate roughly twice an hour
+
+    if (this.lastAnnouncedTimeBlock === timeBlock) return;
+    this.lastAnnouncedTimeBlock = timeBlock;
+
+    const hour = hourOffset + Math.floor(totalMinutes / 60);
+    const minute = totalMinutes % 60;
+    const hh = String(hour).padStart(2, '0');
+    const mm = String(minute).padStart(2, '0');
+    const meetupCountdown = Math.max(0, (18 - hour) * 60 - minute); // Minutes until 6:00 PM
+
+    let meetupText = '';
+    if (meetupCountdown > 0) {
+      const hoursLeft = Math.floor(meetupCountdown / 60);
+      const minsLeft = meetupCountdown % 60;
+      if (hoursLeft > 0) {
+        meetupText = ` — ${hoursLeft}h ${minsLeft}m until the café meetup.`;
+      } else if (minsLeft > 0) {
+        meetupText = ` — ${minsLeft} minutes until everyone crowds the café.`;
+      }
+    } else {
+      meetupText = ' — café meetup underway!';
+    }
+
+    this.enqueue(`🕒 Simulation clock reads ${hh}:${mm}${meetupText}`);
+  }
+
+  reportSocioEconomic(socioEconomic) {
+    if (!socioEconomic) return;
+
+    if (!this.lastSocioSnapshot) {
+      this.lastSocioSnapshot = { ...socioEconomic };
+      const rounded = Object.entries(socioEconomic)
+        .map(([key, value]) => `${this.prettyMetricName(key)} ${Math.round(value * 100)}%`)
+        .join(' • ');
+      this.enqueue(`📊 Baseline metrics locked in: ${rounded}.`);
+      return;
+    }
+
+    const deltas = [];
+    for (const [key, value] of Object.entries(socioEconomic)) {
+      const previous = this.lastSocioSnapshot[key];
+      const delta = value - previous;
+      if (Math.abs(delta) >= 0.08) {
+        deltas.push({ key, value, delta });
+      }
+      this.lastSocioSnapshot[key] = value;
+    }
+
+    if (deltas.length === 0) return;
+
+    const lines = deltas.map(({ key, value, delta }) => {
+      const arrow = delta > 0 ? 'rising' : 'falling';
+      return `${this.prettyMetricName(key)} ${arrow} to ${Math.round(value * 100)}%`;
+    }).join(' • ');
+
+    this.enqueue(`📉 Socio-economic pulse update: ${lines}.`);
+  }
+
+  reportConversationActivity(conversations = []) {
+    const count = conversations.length;
+    if (this.lastConversationCount === undefined) {
+      this.lastConversationCount = count;
+      if (count > 0) {
+        this.enqueue(`💬 ${count} conversation${count > 1 ? 's' : ''} buzzing across town.`);
+      }
+      return;
+    }
+
+    if (count !== this.lastConversationCount) {
+      const delta = count - this.lastConversationCount;
+      this.lastConversationCount = count;
+
+      if (count === 0) {
+        this.enqueue('🤫 The streets quiet down—no active conversations right now.');
+      } else if (delta > 0) {
+        this.enqueue(`💬 ${count} simultaneous chats now—gossip is spreading!`);
+      } else {
+        this.enqueue(`👂 Conversations wind down to ${count}.`);
+      }
+    }
+  }
+
+  reportProtagonist(protagonist) {
+    if (!protagonist || !protagonist.currentEntity) return;
+
+    const { entityId, entityName, isAlive } = protagonist;
+
+    if (this.lastProtagonistId !== entityId) {
+      this.lastProtagonistId = entityId;
+      this.lastProtagonistAlive = isAlive;
+      this.enqueue(`⭐ ${entityName} takes the spotlight as protagonist.`);
+      return;
+    }
+
+    if (this.lastProtagonistAlive !== isAlive) {
+      this.lastProtagonistAlive = isAlive;
+      if (!isAlive) {
+        this.enqueue(`⚱️ ${entityName} fell. The council will choose a new protagonist soon.`);
+      } else {
+        this.enqueue(`💫 ${entityName} is back on their feet and steering the story.`);
+      }
+    }
+  }
+
+  prettyMetricName(key) {
+    switch (key) {
+      case 'prosperity': return 'Prosperity';
+      case 'stability': return 'Stability';
+      case 'happiness': return 'Happiness';
+      case 'tension': return 'Tension';
+      case 'scarcity': return 'Scarcity';
+      default:
+        return key[0].toUpperCase() + key.slice(1);
+    }
+  }
+}
+
 // ============================================================
 // HACKTOWNSCENE CLASS - Convex-powered version
 // ============================================================
@@ -585,6 +870,7 @@ class HackTownConvexScene extends Phaser.Scene {
     this.nowMs = 0;
     this.agents = new Map();  // Map of ID -> NPC instance
     this.conversationManager = null;  // ConversationManager instance
+    this.commentaryManager = null;
     this.player = null;
     this.cafe = new Phaser.Math.Vector2(620, 290);
 
@@ -673,6 +959,7 @@ class HackTownConvexScene extends Phaser.Scene {
 
     // ===== CONVERSATION MANAGER =====
     this.conversationManager = new ConversationManager(this);
+    this.commentaryManager = new CommentaryManager(this);
 
     // ===== DEBUG: Conversation distance circles =====
     this.debugCircles = this.add.graphics();
@@ -1072,6 +1359,15 @@ class HackTownConvexScene extends Phaser.Scene {
 
     // Update protagonist panel
     this.updateProtagonistPanel(protagonist);
+
+    if (this.commentaryManager) {
+      this.commentaryManager.handleConvexUpdate({
+        worldState,
+        conversations,
+        protagonist,
+        agentCount: this.agents.size,
+      });
+    }
   }
 
 
@@ -1343,6 +1639,11 @@ class HackTownConvexScene extends Phaser.Scene {
 
     // ===== UPDATE THOUGHT PANEL =====
     this.updateThoughtPanel();
+
+    // ===== UPDATE COMMENTARY =====
+    if (this.commentaryManager) {
+      this.commentaryManager.update(dt);
+    }
 
     // ===== DEBUG: Draw conversation distance circles =====
     if (this.showDebugCircles) {

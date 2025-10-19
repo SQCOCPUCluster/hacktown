@@ -114,3 +114,56 @@ export const updateStats = mutation({
     await ctx.db.patch(id, updates);
   },
 });
+
+// TEST: Spawn a religious NPC near the church
+export const spawnReligiousNPC = mutation({
+  handler: async (ctx) => {
+    // Spawn near church
+    const x = 120 + Math.random() * 60;  // 120-180
+    const y = 350 + Math.random() * 60;  // 350-410
+
+    const religiousNames = ["Father John", "Sister Mary", "Brother Thomas", "Mother Teresa", "Priest Peter"];
+    const name = religiousNames[Math.floor(Math.random() * religiousNames.length)];
+
+    const npcId = await ctx.db.insert("entities", {
+      name,
+      color: "0xFFD700",  // Gold color for religious NPCs
+      type: "religious",
+      x,
+      y,
+      targetX: x,
+      targetY: y,
+      speed: 42,
+      personality: {
+        curiosity: 0.3 + Math.random() * 0.2,    // 0.3-0.5
+        empathy: 0.7 + Math.random() * 0.2,      // 0.7-0.9
+        boldness: 0.2 + Math.random() * 0.2,     // 0.2-0.4
+        order: 0.8 + Math.random() * 0.15,       // 0.8-0.95
+        mood: 0.45 + Math.random() * 0.15,       // 0.45-0.6
+        weirdness: 0.3 + Math.random() * 0.2,    // 0.3-0.5
+      },
+      alive: true,
+      health: 1.0,
+      stress: 0.2,
+      age: 0,
+      energy: 0.7,
+      social: 0.6,
+      safety: 0.8,
+      despair: 0.0,
+      aggression: 0.0,
+      mentalBreakpoint: 0.0,
+      traumaMemories: [],
+    });
+
+    // Update world population
+    const worldState = await ctx.db.query("worldState").first();
+    if (worldState) {
+      await ctx.db.patch(worldState._id, {
+        population: worldState.population + 1,
+        totalBirths: worldState.totalBirths + 1,
+      });
+    }
+
+    return { id: npcId, name, x, y };
+  },
+});

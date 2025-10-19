@@ -145,7 +145,7 @@ export const worldTick = internalMutation({
         // UTILITY-BASED DECISION MAKING (Replaces pickNewTarget)
         // ============================================================
         // NPCs now choose actions based on internal drives + environment
-        chosenAction = decideAction(entity, entities, fieldCache);
+        chosenAction = decideAction(entity, entities, fieldCache, currentTime);
         const newTarget = generateTargetFromAction(chosenAction, entity, entities, fieldCache);
 
         targetX = newTarget.x;
@@ -206,6 +206,26 @@ export const worldTick = internalMutation({
         });
 
         logger.debug(`${entity.name} is eating (energy: ${currentEnergy.toFixed(2)} → ${updates.energy.toFixed(2)})`);
+      }
+
+      // Church visit rewards - spiritual healing when at church
+      if (chosenAction === "SEEK_FAITH" && distance < 40) {
+        // NPC is at church, provide spiritual comfort
+        const currentStress = entity.stress ?? 0;
+        const currentDespair = entity.despair ?? 0;
+        const currentMood = entity.personality?.mood ?? 0.5;
+
+        // Reduce stress and despair, increase mood
+        updates.stress = Math.max(0, currentStress - 0.1);
+        updates.despair = Math.max(0, currentDespair - 0.15);
+        if (entity.personality) {
+          updates.personality = {
+            ...entity.personality,
+            mood: Math.min(1.0, currentMood + 0.1),
+          };
+        }
+
+        logger.debug(`${entity.name} found peace at church (stress: ${currentStress.toFixed(2)} → ${updates.stress.toFixed(2)}, despair: ${currentDespair.toFixed(2)} → ${updates.despair.toFixed(2)})`);
       }
 
       await ctx.db.patch(entity._id, updates);
@@ -824,27 +844,48 @@ function generateRandomNPC(existingNames: Set<string>) {
     }
   }
 
-  // Random spawn location
-  const x = 100 + Math.random() * 700;
-  const y = 100 + Math.random() * 320;
+  // 30% chance to spawn religious NPC
+  const isReligious = Math.random() < 0.3;
+  const npcType = isReligious ? "religious" : undefined;
+
+  // Random spawn location (religious NPCs have 50% chance to spawn near church)
+  let x, y;
+  if (isReligious && Math.random() < 0.5) {
+    // Spawn near church (x: 100-200, y: 330-430)
+    x = 100 + Math.random() * 100;
+    y = 330 + Math.random() * 100;
+  } else {
+    // Normal spawn location
+    x = 100 + Math.random() * 700;
+    y = 100 + Math.random() * 320;
+  }
 
   // Random color (pastel tones)
   const hue = Math.floor(Math.random() * 360);
   const color = `0x${hslToHex(hue, 60, 70)}`;
 
   // Random personality (0-1 for each trait)
-  const personality = {
+  // Religious NPCs have biased personality traits
+  const personality = isReligious ? {
+    curiosity: 0.3 + Math.random() * 0.2,    // 0.3-0.5 (not explorers, prefer routine)
+    empathy: Math.random(),                   // Random empathy
+    boldness: 0.2 + Math.random() * 0.2,     // 0.2-0.4 (timid, seek comfort)
+    order: 0.7 + Math.random() * 0.2,        // 0.7-0.9 (structured, ritualistic)
+    mood: 0.4 + Math.random() * 0.2,         // 0.4-0.6 (mild dissatisfaction drives seeking)
+    weirdness: Math.random(),                 // Random weirdness
+  } : {
     curiosity: Math.random(),
     empathy: Math.random(),
     boldness: Math.random(),
     order: Math.random(),
-    mood: 0.5 + Math.random() * 0.3, // Start with decent mood
+    mood: 0.5 + Math.random() * 0.3,         // Start with decent mood
     weirdness: Math.random(),
   };
 
   return {
     name,
     color,
+    type: npcType,
     x,
     y,
     targetX: x,

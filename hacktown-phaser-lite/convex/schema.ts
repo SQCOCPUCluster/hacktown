@@ -7,7 +7,7 @@ export default defineSchema({
   entities: defineTable({
     name: v.string(),                        // Character's name
     color: v.string(),                       // Display color (hex code)
-    type: v.optional(v.string()),            // NPC type: "normal", "villain", "hero"
+    type: v.optional(v.string()),            // NPC type: "normal", "villain", "hero", "religious"
     x: v.number(),                           // Current X position
     y: v.number(),                           // Current Y position
     targetX: v.number(),                     // Where walking to (X)
