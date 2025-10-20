@@ -1,10 +1,13 @@
 import { logger } from "./logger";
+import { ollamaLoadBalancer } from "./ollamaLoadBalancer";
 // AI integration - Groq LLM for agent decision-making
 // Using fetch instead of SDK for Convex compatibility
 
 // Configuration: Toggle between Groq (cloud) and Ollama (local via ngrok)
 const USE_GROQ = false; // Set to true to use Groq API (requires GROQ_API_KEY env var)
-const OLLAMA_NGROK_URL = "https://6ecef61b0ecf.ngrok.app"; // ngrok tunnel to localhost:11434 (updated)
+const USE_LOAD_BALANCER = true; // Use multi-GPU load balancing (Mac + Windows)
+const OLLAMA_NGROK_URL = process.env.OLLAMA_HOST || "http://100.97.106.7:11434";
+// Fallback: Windows desktop GPU over Tailscale (used when load balancer disabled)
 
 /**
  * Call Groq to generate a thought/action for an NPC
@@ -214,16 +217,14 @@ What is ${name} thinking or doing right now? (one short sentence)
  */
 async function generateFallbackThought(personality: any, context: any): Promise<string> {
   try {
-    // Try Ollama via ngrok tunnel (cloud-accessible)
     const prompt = buildPrompt(personality, context);
 
-    const response = await fetch(`${OLLAMA_NGROK_URL}/api/generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama3.2:3b",
+    // Use load balancer if enabled, otherwise direct connection
+    if (USE_LOAD_BALANCER) {
+      logger.debug("🔄 Using load balancer for thought generation");
+
+      const result = await ollamaLoadBalancer.generate({
+        model: "qwen2.5:3b", // Fast non-thinking model (was qwen3:8b thinking model)
         prompt: `You are shaping a cozy slice-of-life simulation in a hopeful maker town. Default to gentle, optimistic thoughts (max 10-15 words). When the prompt lists despairLevel >= 0.60, let the character acknowledge heavier feelings honestly; otherwise keep the tone curious or encouraging. Return one sentence.
 
 ${prompt}
@@ -234,15 +235,43 @@ Generate ONE natural thought:`,
           temperature: 0.9,
           num_predict: 30,
         },
-      }),
-    });
+      });
 
-    if (response.ok) {
-      const data = await response.json();
-      const thought = data.response?.trim() || "";
-      if (thought) {
-        // Clean up and return first line only
+      if (result && result.response) {
+        const thought = result.response.trim();
+        logger.debug(`✅ Generated thought via ${result.server}`);
         return thought.replace(/^["'](.*)["']$/, "$1").split('\n')[0];
+      }
+    } else {
+      // Direct connection fallback (single server)
+      logger.debug("🔧 Using direct connection to Ollama");
+
+      const response = await fetch(`${OLLAMA_NGROK_URL}/api/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "qwen2.5:3b", // Fast non-thinking model
+          prompt: `You are shaping a cozy slice-of-life simulation in a hopeful maker town. Default to gentle, optimistic thoughts (max 10-15 words). When the prompt lists despairLevel >= 0.60, let the character acknowledge heavier feelings honestly; otherwise keep the tone curious or encouraging. Return one sentence.
+
+${prompt}
+
+Generate ONE natural thought:`,
+          stream: false,
+          options: {
+            temperature: 0.9,
+            num_predict: 30,
+          },
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const thought = data.response?.trim() || "";
+        if (thought) {
+          return thought.replace(/^["'](.*)["']$/, "$1").split('\n')[0];
+        }
       }
     }
   } catch (error) {
@@ -351,15 +380,7 @@ async function generateLLMDialogue(
     const prompt = buildDialoguePrompt(npc1, npc2, context);
     logger.debug(`📝 Built prompt for LLM (${prompt.length} chars)`);
 
-    logger.debug(`🌐 Calling Ollama via ngrok at ${OLLAMA_NGROK_URL}/api/generate...`);
-    const response = await fetch(`${OLLAMA_NGROK_URL}/api/generate`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "llama3.2:3b",
-        prompt: `You are crafting a grounded yet uplifting conversation between two townspeople in a collaborative, optimistic community.
+    const dialoguePrompt = `You are crafting a grounded yet uplifting conversation between two townspeople in a collaborative, optimistic community.
 
 ${prompt}
 
@@ -377,22 +398,60 @@ ${npc2.name}: [their line]
 
 Each line should be 10-25 words max. PRIORITIZE EMOTIONAL AUTHENTICITY OVER COMFORT.
 
-Conversation:`,
+Conversation:`;
+
+    let rawDialogue: string | undefined;
+
+    // Use load balancer if enabled, otherwise direct connection
+    if (USE_LOAD_BALANCER) {
+      logger.debug("🔄 Using load balancer for dialogue generation");
+
+      const result = await ollamaLoadBalancer.generate({
+        model: "qwen2.5:3b", // Fast non-thinking model (was qwen3:8b)
+        prompt: dialoguePrompt,
         stream: false,
         options: {
           temperature: 0.9,
           num_predict: 150,
         },
-      }),
-    });
+        timeout: 20000, // 20s timeout (faster with non-thinking model)
+      });
 
-    if (!response.ok) {
-      logger.debug(`❌ Ollama response not OK: ${response.status} ${response.statusText}`);
-      return null;
+      if (result && result.response) {
+        rawDialogue = result.response.trim();
+        logger.debug(`✅ Generated dialogue via ${result.server}`);
+      } else {
+        logger.debug(`❌ Load balancer returned no response`);
+        return null;
+      }
+    } else {
+      // Direct connection fallback (single server)
+      logger.debug(`🌐 Calling Ollama directly at ${OLLAMA_NGROK_URL}/api/generate...`);
+
+      const response = await fetch(`${OLLAMA_NGROK_URL}/api/generate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "qwen2.5:3b", // Fast non-thinking model
+          prompt: dialoguePrompt,
+          stream: false,
+          options: {
+            temperature: 0.9,
+            num_predict: 150,
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        logger.debug(`❌ Ollama response not OK: ${response.status} ${response.statusText}`);
+        return null;
+      }
+
+      const data = await response.json();
+      rawDialogue = data.response?.trim();
     }
-
-    const data = await response.json();
-    const rawDialogue = data.response?.trim();
 
     logger.debug(`📥 Received LLM response (${rawDialogue?.length || 0} chars)`);
 

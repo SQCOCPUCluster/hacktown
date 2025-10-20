@@ -29,18 +29,20 @@ crons.interval(
 );
 
 // AI THINKER - NPCs think and make decisions
-// Runs every 8 seconds to give 3-5 NPCs new AI-generated thoughts
+// Runs every 10 seconds to give 3-5 NPCs new AI-generated thoughts
+// (Increased from 8s to prevent overlapping when using thinking model for God events)
 crons.interval(
   "ai thinker",
-  { seconds: 8 },  // Every 8 seconds
+  { seconds: 10 },  // Every 10 seconds (was 8s)
   internal.tick.aiThinkTick,
 );
 
 // CONVERSATION MANAGER - Proximity-based NPC dialogues
-// Runs every 5 seconds to detect nearby NPCs and create conversations
+// Runs every 10 seconds to detect nearby NPCs and create conversations
+// (Increased from 5s to prevent overlapping LLM calls)
 crons.interval(
   "conversation manager",
-  { seconds: 5 },  // Every 5 seconds
+  { seconds: 10 },  // Every 10 seconds (was 5s)
   internal.tick.conversationTick,
 );
 

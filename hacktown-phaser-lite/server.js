@@ -124,16 +124,21 @@ ${contextInstructions}
 
 Generate ONE SHORT dialogue line (maximum 12 words). Be natural and conversational. No quotes or formatting.`;
 
-    // Call Ollama API (local LLM on port 11434)
-    console.log('🤖 Calling Ollama (gemma3:27b) for dialogue...');
+    // Call Ollama API (Windows GPU only - Mac GPU paused)
+    console.log('🤖 Calling Ollama (qwen2.5:3b - fast model) on Windows GPU...');
 
-    const ollamaResponse = await fetch('http://localhost:11434/api/generate', {
+    // Windows GPU only (Mac paused) - using Tailscale MagicDNS hostname
+    const selectedServer = 'http://sqcgpucluster.tailf842ea.ts.net:11434';
+
+    console.log(`   → Using Windows GPU (${selectedServer})`);
+
+    const ollamaResponse = await fetch(`${selectedServer}/api/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'gemma3:27b',
+        model: 'qwen2.5:3b', // Fast non-thinking model (was qwen3:8b)
         prompt: systemPrompt + '\n\nDialogue:',
         stream: false,
         options: {

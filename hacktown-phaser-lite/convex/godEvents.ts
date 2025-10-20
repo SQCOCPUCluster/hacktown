@@ -1,6 +1,8 @@
 import { logger } from "./logger";
+import { ollamaLoadBalancer } from "./ollamaLoadBalancer";
 // God Event Generator - LLM-driven emergent events
 // Events are NOT hard-coded - they emerge from location context and world state
+// Uses THINKING MODEL (qwen3:8b) for deep creative reasoning about emergent narratives
 
 import { findLocationAtPoint, getRandomLocation, getEventModifier, Location } from "./locations";
 
@@ -36,35 +38,51 @@ export async function generateGodEvent(context: {
   try {
     const prompt = buildEventPrompt(context);
 
-    // Try Ollama first (local LLM)
-    const response = await fetch("http://localhost:11434/api/generate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+    logger.debug("🎭 God is thinking about an emergent event...");
+
+    // Use THINKING MODEL (qwen3:8b) via load balancer for deep creative reasoning
+    // God events benefit from the thinking model's reasoning chains
+    const result = await ollamaLoadBalancer.generate({
+      model: "qwen3:8b", // Thinking model for complex narrative generation
+      prompt: prompt + "\n\nReturn ONLY valid JSON with no additional text.",
+      stream: false,
+      options: {
+        temperature: 0.95,  // High creativity for varied emergent events
+        num_predict: 300,   // Allow longer responses for thinking + JSON
       },
-      body: JSON.stringify({
-        model: "gemma3:27b",
-        prompt,
-        stream: false,
-        format: "json",  // Request JSON response
-        options: {
-          temperature: 0.95,  // High creativity for varied events
-          num_predict: 200,
-        },
-      }),
+      timeout: 60000, // 60s timeout - God can take time to think
     });
 
-    if (response.ok) {
-      const data = await response.json();
-      const eventData = JSON.parse(data.response);
+    if (result && result.response) {
+      logger.debug(`✨ God event generated via ${result.server}`);
+
+      // Extract JSON from response (thinking model may include reasoning)
+      let jsonText = result.response.trim();
+
+      // Try to find JSON block if wrapped in markdown
+      const jsonMatch = jsonText.match(/```json\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        jsonText = jsonMatch[1];
+      } else {
+        // Try to extract just the JSON object
+        const objMatch = jsonText.match(/\{[\s\S]*\}/);
+        if (objMatch) {
+          jsonText = objMatch[0];
+        }
+      }
+
+      const eventData = JSON.parse(jsonText);
 
       // Validate and return
       if (validateEventData(eventData)) {
+        logger.debug(`✅ God created: ${eventData.category} - ${eventData.description}`);
         return eventData;
+      } else {
+        logger.warn("⚠️ God event validation failed");
       }
     }
   } catch (error) {
-    logger.error("LLM event generation error:", error);
+    logger.error("❌ God event generation error:", error);
   }
 
   // Fallback: Generate a simple rule-based event
@@ -92,7 +110,7 @@ function buildEventPrompt(context: any): string {
   const hour = 8 + Math.floor(context.worldState.currentTime / 60);
   const timeOfDay = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening";
 
-  return `You are a god-like event generator for a living simulation world. Generate a realistic, emergent event that could happen at this location.
+  return `You are a god-like event generator for a living simulation world. Your role is to create EMERGENT, REALISTIC events that feel natural and contextual.
 
 LOCATION CONTEXT:
 - Name: ${location.name}
@@ -111,14 +129,20 @@ WORLD STATE:
 
 ${recentEventsDesc}
 
+THINK STEP BY STEP:
+1. What type of event makes sense for "${location.type}" at this location?
+2. How do the world state values (tension: ${Math.round(socio.tension * 100)}%, stability: ${Math.round(socio.stability * 100)}%) affect what could happen?
+3. What would be surprising yet believable?
+4. How intense should this event be given the current world state?
+
 CONSTRAINTS:
 1. Events must make sense for this location type (e.g., cults at churches, social events at cafés)
-2. Event severity should reflect world tension/stability
+2. Event severity should reflect world tension/stability (high tension = more severe events)
 3. Scope: "localized" (only this location), "district" (nearby area), or "citywide" (entire map)
 4. Keep descriptions concise (1-2 sentences max)
 5. Category is a freeform label (e.g., "cult", "celebration", "accident", "scandal", "miracle")
 
-Generate ONE event as JSON:
+After thinking, generate ONE event as JSON:
 
 {
   "category": "string (freeform, e.g., cult, celebration, scandal)",
